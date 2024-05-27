@@ -1,0 +1,23 @@
+---
+primary_control_node:
+  hosts:
+    k8s1:
+secondary_control_nodes:
+  hosts:
+    k8s2:
+    k8s3:
+worker_nodes:
+  hosts:
+    k8skw1:
+    k8skw2:
+    # k8skw3:
+control_nodes:
+  children:
+    primary_control_node:
+    secondary_control_nodes:
+all:
+  vars:
+    ansible_user: ubuntu
+  children:
+    control_nodes:
+    worker_nodes:

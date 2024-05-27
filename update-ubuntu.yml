@@ -1,0 +1,18 @@
+# An ansible playbook that runs apt update and upgrade on all nodes in the inventory.
+- name: Upgrade
+  hosts: all
+  become: true
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        autoremove: true
+        autoclean: true
+        force_apt_get: true
+        dpkg_options: "force-confdef,force-confold"
+        install_recommends: false

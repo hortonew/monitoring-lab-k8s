@@ -1,0 +1,12 @@
+- name: Get the kubernetes versions of all nodes
+  hosts: all
+  become: true
+  tasks:
+    - name: Get the kubernetes version
+      ansible.builtin.command: kubectl version
+      register: k8s_version
+      changed_when: false
+
+    - name: Output the version
+      ansible.builtin.debug:
+        var: k8s_version.stdout
