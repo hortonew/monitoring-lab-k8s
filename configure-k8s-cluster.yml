@@ -6,285 +6,299 @@
   tags: setup
   gather_facts: true
   tasks:
-    - name: Set the hostname
-      tags: hostname
-      ansible.builtin.hostname:
-        name: "{{ inventory_hostname }}"
+  - name: Set the hostname
+    tags: hostname
+    ansible.builtin.hostname:
+      name: "{{ inventory_hostname }}"
 
-    - name: Update /etc/hosts
-      tags: hostname
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        regexp: '^(127\.0\.1\.1\s+).*'
-        line: "127.0.1.1 {{ inventory_hostname }}"
-        state: present
-        backrefs: true
+  - name: Update /etc/hosts
+    tags: hostname
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      regexp: '^(127\.0\.1\.1\s+).*'
+      line: "127.0.1.1 {{ inventory_hostname }}"
+      state: present
+      backrefs: true
 
-    # make sure .bashrc has alias k=kubectl
-    - name: Add alias to .bashrc
-      ansible.builtin.lineinfile:
-        path: /home/ubuntu/.bashrc
-        line: "alias k=kubectl"
-        state: present
-        create: true
-        mode: "0644"
-        insertafter: EOF
+  # make sure .bashrc has alias k=kubectl
+  - name: Add alias to .bashrc
+    ansible.builtin.lineinfile:
+      path: /home/ubuntu/.bashrc
+      line: "alias k=kubectl"
+      state: present
+      create: true
+      mode: "0644"
+      insertafter: EOF
 
-    - name: Gather IP address of each host
-      tags: network
-      ansible.builtin.setup:
-        gather_subset:
-          - network
+  - name: Gather IP address of each host
+    tags: network
+    ansible.builtin.setup:
+      gather_subset:
+      - network
 
-    - name: Create a list of hostnames and IPs
-      tags: network
-      ansible.builtin.set_fact:
-        host_info: |
-          {% for host in groups['all'] %}
-          {% if hostvars[host]['ansible_default_ipv4'] is defined %}
-          {{ hostvars[host]['ansible_default_ipv4']['address'] }} {{ host }}
-          {% endif %}
-          {% endfor %}
-    - name: Debug host_info
-      tags: network
-      ansible.builtin.debug:
-        var: host_info
+  - name: Create a list of hostnames and IPs
+    tags: network
+    ansible.builtin.set_fact:
+      host_info: |
+        {% for host in groups['all'] %}
+        {% if hostvars[host]['ansible_default_ipv4'] is defined %}
+        {{ hostvars[host]['ansible_default_ipv4']['address'] }} {{ host }}
+        {% endif %}
+        {% endfor %}
+  - name: Debug host_info
+    tags: network
+    ansible.builtin.debug:
+      var: host_info
 
-    - name: Append host information to /etc/hosts
-      tags: network
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        create: true
-        line: "{{ item }}"
-        state: present
-        mode: "0644"
-      with_items: "{{ host_info.split('\n') }}"
-      when: item != ""
+  - name: Append host information to /etc/hosts
+    tags: network
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      create: true
+      line: "{{ item }}"
+      state: present
+      mode: "0644"
+    with_items: "{{ host_info.split('\n') }}"
+    when: item != ""
 
-    - name: Update apt cache
-      ansible.builtin.apt:
-        update_cache: true
+  - name: Update apt cache
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: 3600
+    register: apt_update_result
+    until: apt_update_result is succeeded
+    retries: 5
+    delay: 5
 
-    - name: Install required packages
-      ansible.builtin.apt:
-        name:
-          - apt-transport-https
-          - curl
-          - gnupg2
-          - software-properties-common
-          - ca-certificates
-        state: present
-      retries: 5
-      delay: 5
+  - name: Install required packages
+    ansible.builtin.apt:
+      name:
+      - apt-transport-https
+      - curl
+      - gnupg2
+      - software-properties-common
+      - ca-certificates
+      state: present
+    retries: 5
+    delay: 5
 
-    - name: Install optional packages
-      ansible.builtin.apt:
-        name:
-          - open-iscsi
-          - nfs-common
-        state: present
-      retries: 5
-      delay: 5
+  - name: Install optional packages
+    ansible.builtin.apt:
+      name:
+      - open-iscsi
+      - nfs-common
+      state: present
+    retries: 5
+    delay: 5
 
-    - name: Ensure the keyring directory exists
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: "0755"
+  - name: Remove broken apt.kubernetes.io from any sources file
+    ansible.builtin.shell: sed -i '/apt.kubernetes.io/d' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+    ignore_errors: true
 
-    - name: Download the Kubernetes APT key and convert it to gpg
-      ansible.builtin.shell:
-        cmd: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-      args:
-        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  - name: Ensure the keyring directory exists
+    ansible.builtin.file:
+      path: /etc/apt/keyrings
+      state: directory
+      mode: "0755"
 
-    - name: Set the correct permissions for the keyring file
-      ansible.builtin.file:
-        path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-        mode: "0644"
-        state: file
+  - name: Download the Kubernetes APT key and convert it to gpg
+    ansible.builtin.shell:
+      cmd: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    args:
+      creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
-    - name: Add Kubernetes repository
-      ansible.builtin.shell:
-        cmd: echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
-      args:
-        creates: /etc/apt/sources.list.d/kubernetes.list
+  - name: Set the correct permissions for the keyring file
+    ansible.builtin.file:
+      path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      mode: "0644"
+      state: file
 
-    - name: Download the Docker GPG key and convert it to gpg
-      ansible.builtin.shell:
-        cmd: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
-      args:
-        creates: /etc/apt/trusted.gpg.d/docker.gpg
+  - name: Add Kubernetes repository (pkgs.k8s.io v1.32)
+    ansible.builtin.shell:
+      cmd: echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+    args:
+      creates: /etc/apt/sources.list.d/kubernetes.list
 
-    - name: Add Docker repository
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-        state: present
-        update_cache: true
+  - name: Download the Docker GPG key and convert it to gpg
+    ansible.builtin.shell:
+      cmd: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+    args:
+      creates: /etc/apt/trusted.gpg.d/docker.gpg
 
-    - name: Update apt cache after adding repositories
-      ansible.builtin.apt:
-        update_cache: true
+  - name: Add Docker repository
+    ansible.builtin.apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+      state: present
+      update_cache: true
 
-    - name: Install Kubernetes and Docker packages
-      ansible.builtin.apt:
-        name:
-          - kubelet
-          - kubeadm
-          - kubectl
-          - containerd.io
-        state: present
-        allow_downgrade: true
-      retries: 5
-      delay: 5
+  - name: Update apt cache after adding repositories
+    ansible.builtin.apt:
+      update_cache: true
+      cache_valid_time: 0
+    register: apt_update_after_repos
+    until: apt_update_after_repos is succeeded
+    retries: 5
+    delay: 5
 
-    - name: Hold Kubernetes and Docker packages
-      ansible.builtin.shell:
-        cmd: |
-          apt-mark hold kubelet kubeadm kubectl containerd.io
-      changed_when: false
+  - name: Install Kubernetes and Docker packages
+    ansible.builtin.apt:
+      name:
+      - kubelet
+      - kubeadm
+      - kubectl
+      - containerd.io
+      state: present
+      allow_downgrade: true
+    retries: 5
+    delay: 5
 
-    - name: Enable and start containerd
-      ansible.builtin.systemd:
-        name: containerd
-        enabled: true
-        state: started
+  - name: Hold Kubernetes and Docker packages
+    ansible.builtin.shell:
+      cmd: |
+        apt-mark hold kubelet kubeadm kubectl containerd.io
+    changed_when: false
 
-    - name: Enable kubelet
-      ansible.builtin.systemd:
-        name: kubelet
-        enabled: true
-        state: started
+  - name: Enable and start containerd
+    ansible.builtin.systemd:
+      name: containerd
+      enabled: true
+      state: started
 
-    - name: Check if swap is enabled
-      ansible.builtin.command:
-        cmd: swapon --summary
-      register: swap_status
-      changed_when: false
+  - name: Enable kubelet
+    ansible.builtin.systemd:
+      name: kubelet
+      enabled: true
+      state: started
 
-    - name: Disable swap if enabled
-      ansible.builtin.shell:
-        cmd: swapoff -a && sed -i '/ swap / s/^/#/' /etc/fstab
-      when: swap_status.stdout != ''
-      changed_when: swap_status.stdout != ''
+  - name: Check if swap is enabled
+    ansible.builtin.command:
+      cmd: swapon --summary
+    register: swap_status
+    changed_when: false
 
-    - name: Comment out swap in fstab
-      ansible.builtin.replace:
-        path: /etc/fstab
-        regexp: '^(\s*.*\s+swap\s+.*)$'
-        replace: '# \1'
+  - name: Disable swap if enabled
+    ansible.builtin.shell:
+      cmd: swapoff -a && sed -i '/ swap / s/^/#/' /etc/fstab
+    when: swap_status.stdout != ''
+    changed_when: swap_status.stdout != ''
 
-    - name: Create containerd modules-load configuration
-      ansible.builtin.copy:
-        dest: /etc/modules-load.d/containerd.conf
-        content: |
-          overlay
-          br_netfilter
-        mode: "0644"
+  - name: Comment out swap in fstab
+    ansible.builtin.replace:
+      path: /etc/fstab
+      regexp: '^(\s*.*\s+swap\s+.*)$'
+      replace: '# \1'
 
-    - name: Load overlay module
-      community.general.modprobe:
-        name: overlay
-        state: present
+  - name: Create containerd modules-load configuration
+    ansible.builtin.copy:
+      dest: /etc/modules-load.d/containerd.conf
+      content: |
+        overlay
+        br_netfilter
+      mode: "0644"
 
-    - name: Load br_netfilter module
-      community.general.modprobe:
-        name: br_netfilter
-        state: present
+  - name: Load overlay module
+    community.general.modprobe:
+      name: overlay
+      state: present
 
-    - name: Create Kubernetes sysctl configuration
-      ansible.builtin.copy:
-        dest: /etc/sysctl.d/kubernetes.conf
-        content: |
-          net.bridge.bridge-nf-call-ip6tables = 1
-          net.bridge.bridge-nf-call-iptables = 1
-          net.ipv4.ip_forward = 1
-        mode: "0644"
+  - name: Load br_netfilter module
+    community.general.modprobe:
+      name: br_netfilter
+      state: present
 
-    - name: Create Kubernetes sysctl configuration
-      ansible.builtin.copy:
-        dest: /etc/sysctl.d/kubernetes.conf
-        content: |
-          net.bridge.bridge-nf-call-ip6tables = 1
-          net.bridge.bridge-nf-call-iptables = 1
-          net.ipv4.ip_forward = 1
-        mode: "0644"
+  - name: Create Kubernetes sysctl configuration
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/kubernetes.conf
+      content: |
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward = 1
+      mode: "0644"
 
-    - name: Apply sysctl parameters
-      ansible.posix.sysctl:
-        name: "{{ item.name }}"
-        value: "{{ item.value }}"
-      loop:
-        - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
-        - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
-        - { name: "net.ipv4.ip_forward", value: "1" }
+  - name: Create Kubernetes sysctl configuration
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/kubernetes.conf
+      content: |
+        net.bridge.bridge-nf-call-ip6tables = 1
+        net.bridge.bridge-nf-call-iptables = 1
+        net.ipv4.ip_forward = 1
+      mode: "0644"
 
-    - name: Check if containerd config file exists
-      ansible.builtin.stat:
-        path: /etc/containerd/config.toml
-      register: containerd_config_stat
+  - name: Apply sysctl parameters
+    ansible.posix.sysctl:
+      name: "{{ item.name }}"
+      value: "{{ item.value }}"
+    loop:
+    - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
+    - { name: "net.ipv4.ip_forward", value: "1" }
 
-    - name: Check if SystemdCgroup is in /etc/containerd/config.toml
-      ansible.builtin.shell:
-        cmd: grep -q "SystemdCgroup = true" /etc/containerd/config.toml
-      register: containerd_config_check
-      when: containerd_config_stat.stat.exists
-      changed_when: false
-      failed_when: false
+  - name: Check if containerd config file exists
+    ansible.builtin.stat:
+      path: /etc/containerd/config.toml
+    register: containerd_config_stat
 
-    - name: Generate default containerd configuration if SystemdCgroup not found in file
-      ansible.builtin.shell:
-        cmd: containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
-      when: containerd_config_check is defined and containerd_config_check.rc != 0
+  - name: Check if SystemdCgroup is in /etc/containerd/config.toml
+    ansible.builtin.shell:
+      cmd: grep -q "SystemdCgroup = true" /etc/containerd/config.toml
+    register: containerd_config_check
+    when: containerd_config_stat.stat.exists
+    changed_when: false
+    failed_when: false
 
-    - name: Update containerd configuration to use systemd cgroups
-      ansible.builtin.replace:
-        path: /etc/containerd/config.toml
-        regexp: "SystemdCgroup = false"
-        replace: "SystemdCgroup = true"
-      register: containerd_config_update
+  - name: Generate default containerd configuration if SystemdCgroup not found in file
+    ansible.builtin.shell:
+      cmd: containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
+    when: containerd_config_check is defined and containerd_config_check.rc != 0
 
-    - name: Restart containerd service
-      ansible.builtin.systemd:
-        name: containerd
-        state: restarted
-      when: containerd_config_update.changed
+  - name: Update containerd configuration to use systemd cgroups
+    ansible.builtin.replace:
+      path: /etc/containerd/config.toml
+      regexp: "SystemdCgroup = false"
+      replace: "SystemdCgroup = true"
+    register: containerd_config_update
 
-    - name: Enable containerd service
-      ansible.builtin.systemd:
-        name: containerd
-        enabled: true
+  - name: Restart containerd service
+    ansible.builtin.systemd:
+      name: containerd
+      state: restarted
+    when: containerd_config_update.changed
 
-    - name: Create .kube directory
-      ansible.builtin.file:
-        path: "/home/ubuntu/.kube"
-        state: directory
-        mode: '0755'
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
+  - name: Enable containerd service
+    ansible.builtin.systemd:
+      name: containerd
+      enabled: true
 
-    - name: Check if admin.conf exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/admin.conf
-      register: admin_conf
+  - name: Create .kube directory
+    ansible.builtin.file:
+      path: "/home/ubuntu/.kube"
+      state: directory
+      mode: '0755'
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
 
-    - name: Copy admin.conf to .kube/config
-      ansible.builtin.copy:
-        src: /etc/kubernetes/admin.conf
-        dest: "/home/ubuntu/.kube/config"
-        remote_src: true
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
-      when: admin_conf.stat.exists
+  - name: Check if admin.conf exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/admin.conf
+    register: admin_conf
 
-    - name: Change ownership of .kube/config
-      ansible.builtin.file:
-        path: "/home/ubuntu/.kube/config"
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
-      when: admin_conf.stat.exists
+  - name: Copy admin.conf to .kube/config
+    ansible.builtin.copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "/home/ubuntu/.kube/config"
+      remote_src: true
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
+      mode: '0644'
+    when: admin_conf.stat.exists
+
+  - name: Change ownership of .kube/config
+    ansible.builtin.file:
+      path: "/home/ubuntu/.kube/config"
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
+      mode: '0644'
+    when: admin_conf.stat.exists
 
 # ansible-playbook configure-k8s-cluster.yml -t k8s --limit primary_control_node,secondary_control_nodes
 - name: Configure Kubernetes Primary
@@ -292,151 +306,200 @@
   become: true
   tags: kubernetes,k8s
   tasks:
-    - name: Check if cluster is already initialized
-      ansible.builtin.shell: |
-        kubectl cluster-info && echo "initialized" || echo "not initialized"
-      register: cluster_status
-      changed_when: false
-      ignore_errors: true
+  - name: Check if cluster is already initialized
+    ansible.builtin.shell: |
+      kubectl cluster-info && echo "initialized" || echo "not initialized"
+    register: cluster_status
+    changed_when: false
+    ignore_errors: true
 
-    - name: Check if kube-apiserver manifest exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/manifests/kube-apiserver.yaml
-      register: kube_apiserver_manifest
+  - name: Check if kube-apiserver manifest exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/manifests/kube-apiserver.yaml
+    register: kube_apiserver_manifest
 
-    - name: Initialize cluster
-      ansible.builtin.shell: sudo kubeadm init --control-plane-endpoint "{{ ansible_hostname }}:6443" --upload-certs
-      when:
-        - cluster_status.stdout.find('not initialized') != -1
-        - not kube_apiserver_manifest.stat.exists
+  - name: Initialize cluster
+    ansible.builtin.shell: sudo kubeadm init --control-plane-endpoint "{{ ansible_hostname }}:6443" --upload-certs
+    register: kubeadm_init_result
+    when:
+    - cluster_status.stdout.find('not initialized') != -1
+    - not kube_apiserver_manifest.stat.exists
 
-    - name: Retrieve Join Command
-      ansible.builtin.shell: kubeadm token create --print-join-command
-      register: join_command_raw
+  - name: Wait for kube-apiserver to be reachable on control-plane endpoint
+    ansible.builtin.wait_for:
+      host: "{{ ansible_hostname }}"
+      port: 6443
+      delay: 5
+      timeout: 120
+    when: kubeadm_init_result is changed and kubeadm_init_result.rc == 0
 
-    - name: Retrieve certificate key
-      ansible.builtin.shell: sudo kubeadm init phase upload-certs --upload-certs
-      register: cert_key_output
+  - name: Wait for kube-apiserver to be reachable on localhost
+    ansible.builtin.wait_for:
+      host: 127.0.0.1
+      port: 6443
+      delay: 5
+      timeout: 120
+    when: kubeadm_init_result is changed and kubeadm_init_result.rc == 0
 
-    - name: Set certificate key
-      ansible.builtin.set_fact:
-        certificate_key: "{{ cert_key_output.stdout | regex_search('Using certificate key:\\s+([a-zA-Z0-9]+)', '\\1') }}"
-      when: cert_key_output is defined
+  - name: Retrieve Join Command
+    ansible.builtin.shell: kubeadm token create --print-join-command
+    register: join_command_raw
+    when: kube_apiserver_manifest.stat.exists or (kubeadm_init_result is defined and kubeadm_init_result.rc == 0)
 
-    - name: Set Worker Join Command
-      ansible.builtin.set_fact:
-        worker_join_command: "{{ join_command_raw.stdout_lines[0] }}"
-        control_plane_join_command: "{{ join_command_raw.stdout_lines[0] }} --control-plane --certificate-key {{ certificate_key[0] }}"
-      when: kube_apiserver_manifest.stat.exists
+  - name: Retrieve certificate key
+    ansible.builtin.shell: sudo kubeadm init phase upload-certs --upload-certs
+    register: cert_key_output
 
-    - name: Debug Worker join command
-      ansible.builtin.debug:
-        var: worker_join_command
-      when: kube_apiserver_manifest.stat.exists
+  - name: Set certificate key
+    ansible.builtin.set_fact:
+      certificate_key: "{{ cert_key_output.stdout | regex_search('Using certificate key:\\s+([a-zA-Z0-9]+)', '\\1') }}"
+    when: cert_key_output is defined
 
-    - name: Debug Control Plane join command
-      ansible.builtin.debug:
-        var: control_plane_join_command
-      when: kube_apiserver_manifest.stat.exists
+  - name: Set Worker Join Command
+    ansible.builtin.set_fact:
+      worker_join_command: "{{ join_command_raw.stdout_lines[0] }}"
+      control_plane_join_command: "{{ join_command_raw.stdout_lines[0] }} --control-plane --certificate-key {{ certificate_key[0] }}"
+    when: kube_apiserver_manifest.stat.exists
 
-    - name: Install Calico
-      ansible.builtin.shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-      become: false
+  - name: Debug Worker join command
+    ansible.builtin.debug:
+      var: worker_join_command
+    when: kube_apiserver_manifest.stat.exists
+
+  - name: Debug Control Plane join command
+    ansible.builtin.debug:
+      var: control_plane_join_command
+    when: kube_apiserver_manifest.stat.exists
+
+  - name: Check if Calico is already installed
+    ansible.builtin.shell: kubectl get daemonset calico-node -n kube-system
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+    register: calico_check
+    failed_when: false
+    changed_when: false
+    ignore_errors: true
+
+  - name: Install Calico
+    ansible.builtin.shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+    when: calico_check.rc != 0
+
+- name: Fetch kubeconfig to local machine
+  hosts: primary_control_node
+  become: false
+  tags: kubeconfig
+  tasks:
+  - name: Fetch kubeconfig from primary control node
+    ansible.builtin.fetch:
+      # export KUBECONFIG=~/.kube/config:~/.kube/proxmox-k8s-config
+      src: /home/ubuntu/.kube/config
+      dest: ~/.kube/proxmox-k8s-config
+      flat: true
+
+  - name: Rename context to proxmox-k8s
+    delegate_to: localhost
+    ansible.builtin.shell: kubectl --kubeconfig ~/.kube/proxmox-k8s-config config rename-context kubernetes-admin@kubernetes proxmox-k8s
+    args:
+      executable: /bin/bash
+    changed_when: false
+    failed_when: false
 
 - name: Configure Kubernetes Secondary
   hosts: secondary_control_nodes
   become: true
   tags: kubernetes,k8s
   tasks:
-    - name: Enable TCP port 6443 (On Master) is able to connect from Worker
-      ansible.builtin.wait_for:
-        host: k8s1
-        port: 6443
-        timeout: 1
+  - name: Enable TCP port 6443 (On Master) is able to connect from Worker
+    ansible.builtin.wait_for:
+      host: k8s1
+      port: 6443
+      timeout: 1
 
-    - name: Check if cluster is already initialized
-      ansible.builtin.shell: |
-        kubectl cluster-info && echo "initialized" || echo "not initialized"
-      register: cluster_status
-      changed_when: false
-      ignore_errors: true
+  - name: Check if cluster is already initialized
+    ansible.builtin.shell: |
+      kubectl cluster-info && echo "initialized" || echo "not initialized"
+    register: cluster_status
+    changed_when: false
+    ignore_errors: true
 
-    - name: Check if kube-apiserver manifest exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/manifests/kube-apiserver.yaml
-      register: kube_apiserver_manifest
+  - name: Check if kube-apiserver manifest exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/manifests/kube-apiserver.yaml
+    register: kube_apiserver_manifest
 
-    - name: Join control nodes to cluster
-      ansible.builtin.shell: "{{ hostvars['k8s1'].control_plane_join_command }} >> node_joined.log"
-      when:
-        - cluster_status.stdout.find('not initialized') != -1
-        - not kube_apiserver_manifest.stat.exists
-      register: join_output
+  - name: Join control nodes to cluster
+    ansible.builtin.shell: "{{ hostvars['k8s1'].control_plane_join_command }} >> node_joined.log"
+    when:
+    - cluster_status.stdout.find('not initialized') != -1
+    - not kube_apiserver_manifest.stat.exists
+    register: join_output
 
-    - name: Create .kube directory
-      ansible.builtin.file:
-        path: "/home/ubuntu/.kube"
-        state: directory
-        mode: '0755'
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-      when: join_output is defined
+  - name: Create .kube directory
+    ansible.builtin.file:
+      path: "/home/ubuntu/.kube"
+      state: directory
+      mode: '0755'
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
+    when: join_output is defined
 
-    - name: Check if admin.conf exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/admin.conf
-      register: admin_conf
-      when: join_output is defined
+  - name: Check if admin.conf exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/admin.conf
+    register: admin_conf
+    when: join_output is defined
 
-    - name: Copy admin.conf to .kube/config
-      ansible.builtin.copy:
-        src: /etc/kubernetes/admin.conf
-        dest: "/home/ubuntu/.kube/config"
-        remote_src: true
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
-      when: admin_conf is defined and admin_conf.stat.exists
+  - name: Copy admin.conf to .kube/config
+    ansible.builtin.copy:
+      src: /etc/kubernetes/admin.conf
+      dest: "/home/ubuntu/.kube/config"
+      remote_src: true
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
+      mode: '0644'
+    when: admin_conf is defined and admin_conf.stat.exists
 
-    - name: Change ownership of .kube/config
-      ansible.builtin.file:
-        path: "/home/ubuntu/.kube/config"
-        owner: "{{ ansible_user_id }}"
-        group: "{{ ansible_user_gid }}"
-        mode: '0644'
-      when: admin_conf is defined and admin_conf.stat.exists
+  - name: Change ownership of .kube/config
+    ansible.builtin.file:
+      path: "/home/ubuntu/.kube/config"
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_gid }}"
+      mode: '0644'
+    when: admin_conf is defined and admin_conf.stat.exists
 
 - name: Configure Kubernetes Workers
   hosts: worker_nodes
   become: true
   tags: kubernetes,k8s
   tasks:
-    - name: Enable TCP port 6443 (On Master) is able to connect from Worker
-      ansible.builtin.wait_for:
-        host: k8s1
-        port: 6443
-        timeout: 1
+  - name: Enable TCP port 6443 (On Master) is able to connect from Worker
+    ansible.builtin.wait_for:
+      host: k8s1
+      port: 6443
+      timeout: 1
 
-    - name: Check if cluster is already initialized
-      ansible.builtin.shell: |
-        kubectl cluster-info && echo "initialized" || echo "not initialized"
-      register: cluster_status
-      changed_when: false
-      ignore_errors: true
+  - name: Check if cluster is already initialized
+    ansible.builtin.shell: |
+      kubectl cluster-info && echo "initialized" || echo "not initialized"
+    register: cluster_status
+    changed_when: false
+    ignore_errors: true
 
-    - name: Check if kube-apiserver manifest exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/manifests/kube-apiserver.yaml
-      register: kube_apiserver_manifest
+  - name: Check if kube-apiserver manifest exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/manifests/kube-apiserver.yaml
+    register: kube_apiserver_manifest
 
-    - name: Check if ca.crt exists
-      ansible.builtin.stat:
-        path: /etc/kubernetes/pki/ca.crt
-      register: ca_cert
+  - name: Check if ca.crt exists
+    ansible.builtin.stat:
+      path: /etc/kubernetes/pki/ca.crt
+    register: ca_cert
 
-    - name: Join worker nodes to cluster
-      ansible.builtin.shell: "{{ hostvars['k8s1'].worker_join_command }} >> node_joined.log"
-      when:
-        - cluster_status.stdout.find('not initialized') != -1
-        - not kube_apiserver_manifest.stat.exists
-        - not ca_cert.stat.exists
+  - name: Join worker nodes to cluster
+    ansible.builtin.shell: "{{ hostvars['k8s1'].worker_join_command }} >> node_joined.log"
+    when:
+    - cluster_status.stdout.find('not initialized') != -1
+    - not kube_apiserver_manifest.stat.exists
+    - not ca_cert.stat.exists

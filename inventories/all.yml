@@ -9,8 +9,7 @@ secondary_control_nodes:
 worker_nodes:
   hosts:
     k8skw1:
-    k8skw2:
-    # k8skw3:
+    k8skw2: # k8skw3:
 control_nodes:
   children:
     primary_control_node:
@@ -18,6 +17,7 @@ control_nodes:
 all:
   vars:
     ansible_user: ubuntu
+    ansible_python_interpreter: /usr/bin/python3.12
   children:
     control_nodes:
     worker_nodes:

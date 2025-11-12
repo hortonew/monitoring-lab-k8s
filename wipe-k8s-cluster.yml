@@ -1,0 +1,174 @@
+---
+# playbook: wipe-k8s-cluster.yml
+# Safely wipe Kubernetes state on target hosts so you can reinitialize the cluster.
+# Usage examples:
+#  - Test on single host without removing packages:
+#      ansible-playbook wipe-k8s-cluster.yml --limit k8s1 -e confirm=true -e remove_packages=false -e reboot_after=false -vvv
+#  - Full cluster wipe and remove packages (dangerous):
+#      ansible-playbook wipe-k8s-cluster.yml -e confirm=true -e remove_packages=true -e reboot_after=true
+
+- name: Wipe Kubernetes state from remote hosts
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    confirm: false # must be set true to run
+    remove_packages: false # set true to purge kubeadm/kubelet/kubectl/containerd
+    reboot_after: false # set true to reboot nodes after cleanup
+    keep_etcd_on_disk: false # set true to keep etcd data if you run external etcd
+  tasks:
+  - name: Safety check - abort if not confirmed
+    ansible.builtin.fail:
+      msg: |
+        This playbook WILL ERASE Kubernetes state on the target hosts.
+        Re-run with -e confirm=true to proceed.
+    when: not (confirm | bool)
+
+  - name: Stop kubelet service
+    ansible.builtin.systemd:
+      name: kubelet
+      state: stopped
+      enabled: false
+    ignore_errors: true
+
+  - name: Stop container runtime (containerd)
+    ansible.builtin.systemd:
+      name: containerd
+      state: stopped
+      enabled: false
+    ignore_errors: true
+
+  - name: Reset kubeadm state (safer than manual removal)
+    ansible.builtin.shell: |
+      kubeadm reset -f || true
+    args:
+      warn: false
+    register: kubeadm_reset
+    changed_when: kubeadm_reset.rc == 0
+    ignore_errors: true
+
+  - name: Remove Kubernetes manifests
+    ansible.builtin.file:
+      path: /etc/kubernetes
+      state: absent
+    ignore_errors: true
+
+  - name: Remove kube config for ubuntu user
+    ansible.builtin.file:
+      path: /home/ubuntu/.kube
+      state: absent
+    ignore_errors: true
+
+  - name: Remove kube config for root user
+    ansible.builtin.file:
+      path: /root/.kube
+      state: absent
+    ignore_errors: true
+
+  - name: Remove CNI configuration
+    ansible.builtin.file:
+      path: /etc/cni
+      state: absent
+    ignore_errors: true
+
+  - name: Remove CNI network plugins and kubelet directories
+    ansible.builtin.file:
+      path: /var/lib/cni
+      state: absent
+    ignore_errors: true
+
+  - name: Remove kubelet runtime state
+    ansible.builtin.file:
+      path: /var/lib/kubelet
+      state: absent
+    ignore_errors: true
+
+  - name: Remove containerd state (images/containers)
+    ansible.builtin.file:
+      path: /var/lib/containerd
+      state: absent
+    ignore_errors: true
+
+  - name: Remove etcd data (optional)
+    ansible.builtin.file:
+      path: /var/lib/etcd
+      state: absent
+    when: not (keep_etcd_on_disk | bool)
+    ignore_errors: true
+
+  - name: Remove CNI binaries
+    ansible.builtin.file:
+      path: /opt/cni
+      state: absent
+    ignore_errors: true
+
+  - name: Remove manifests in /etc/systemd/system for kubelet
+    ansible.builtin.shell: find /etc/systemd/system -name '*kube*' -exec rm -f {} + || true
+    ignore_errors: true
+
+  - name: Purge kube packages (optional)
+    ansible.builtin.apt:
+      name:
+      - kubeadm
+      - kubelet
+      - kubectl
+      - containerd.io
+      state: absent
+      purge: yes
+      autoremove: yes
+      force: yes
+    when: remove_packages | bool
+    ignore_errors: true
+
+  - name: Remove apt lists (optional cleanup)
+    ansible.builtin.file:
+      path: /var/lib/apt/lists
+      state: absent
+    when: remove_packages | bool
+    ignore_errors: true
+
+  - name: Flush iptables FORWARD rules (CNI may have left rules)
+    ansible.builtin.shell: |
+      iptables -F || true
+      iptables -t nat -F || true
+    args:
+      warn: false
+    ignore_errors: true
+
+  - name: Ensure /etc/resolv.conf not modified by playbook
+    ansible.builtin.stat:
+      path: /etc/resolv.conf
+    register: resolv
+
+  - name: Debug resolv.conf (path exists)
+    ansible.builtin.debug:
+      msg: "/etc/resolv.conf present"
+    when: resolv.stat.exists
+
+  - name: Re-enable and start containerd if we didn't remove packages
+    ansible.builtin.systemd:
+      name: containerd
+      state: started
+      enabled: true
+    when: not (remove_packages | bool)
+    ignore_errors: true
+
+  - name: Re-enable kubelet (left stopped until reinstallation)
+    ansible.builtin.systemd:
+      name: kubelet
+      enabled: false
+      state: stopped
+    when: not (remove_packages | bool)
+    ignore_errors: true
+
+  - name: Optionally reboot nodes after wipe
+    ansible.builtin.reboot:
+      reboot_timeout: 600
+    when: reboot_after | bool
+    ignore_errors: true
+
+  - name: Show completion message
+    ansible.builtin.debug:
+      msg: |
+        Wipe complete on {{ inventory_hostname }}.
+        Packages removed: {{ remove_packages }}. Reboot requested: {{ reboot_after }}.
