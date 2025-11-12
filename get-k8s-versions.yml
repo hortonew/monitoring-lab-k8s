@@ -2,11 +2,29 @@
   hosts: all
   become: true
   tasks:
-    - name: Get the kubernetes version
-      ansible.builtin.command: kubectl version
-      register: k8s_version
-      changed_when: false
+  - name: Get kubelet version (if kubelet present)
+    ansible.builtin.command: kubelet --version
+    register: kubelet_version
+    changed_when: false
+    failed_when: false
 
-    - name: Output the version
-      ansible.builtin.debug:
-        var: k8s_version.stdout
+  - name: Check for control-plane kubeconfig
+    ansible.builtin.stat:
+      path: /etc/kubernetes/admin.conf
+    register: adminconf
+
+  - name: Get the kubectl server version when admin kubeconfig exists
+    ansible.builtin.command: kubectl version --short
+    register: kubectl_version
+    changed_when: false
+    failed_when: false
+    when: adminconf.stat.exists
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+
+  - name: Output collected versions
+    ansible.builtin.debug:
+      msg: |
+        host={{ inventory_hostname }}
+        kubelet={{ kubelet_version.stdout | default('n/a') }}
+        kubectl_server={{ kubectl_version.stdout | default('n/a') }}
