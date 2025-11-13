@@ -1,0 +1,195 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: grafana
+    targetRevision: 8.8.2
+    helm:
+      valuesObject:
+        # Admin credentials
+        adminUser: admin
+        adminPassword: admin
+
+        # Service configuration
+        service:
+          type: LoadBalancer
+          port: 80
+        # Resource limits for lab environment
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+
+        # Persistence - disabled for lab environment
+        persistence:
+          enabled: false
+
+        # Basic datasources configuration
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+            - name: Prometheus
+              type: prometheus
+              uid: prometheus-main
+              url: http://prometheus-operated.prometheus.svc.cluster.local:9090
+              access: proxy
+              isDefault: true
+            # - name: Loki
+            #   type: loki
+            #   uid: loki-main
+            #   url: http://loki.loki.svc.cluster.local:3100
+            #   access: proxy
+            #   jsonData:
+            #     maxLines: 1000
+            # - name: Pyroscope
+            #   type: grafana-pyroscope-datasource
+            #   uid: pyroscope-main
+            #   url: http://pyroscope.pyroscope.svc.cluster.local:4040
+            #   access: proxy
+            #   jsonData:
+            #     minStep: '15s'
+            # - name: Argo-Workflows-Metrics
+            #   type: prometheus
+            #   uid: argo-workflows-prometheus
+            #   url: http://argo-workflows-workflow-controller-metrics.argo.svc.cluster.local:9090
+            #   access: proxy
+
+            # Basic dashboards
+        dashboardProviders:
+          dashboardproviders.yaml:
+            apiVersion: 1
+            providers:
+            - name: 'default'
+              orgId: 1
+              folder: ''
+              type: file
+              disableDeletion: false
+              editable: true
+              options:
+                path: /var/lib/grafana/dashboards/default
+
+        # Enable anonymous access for lab environment
+        grafana.ini:
+          auth.anonymous:
+            enabled: false
+          security:
+            allow_embedding: true
+
+        # Basic plugins for Kubernetes monitoring
+        # Note: grafana-pyroscope-datasource is a core plugin in Grafana 8.8+ and doesn't need to be installed
+        plugins:
+        - grafana-kubernetes-app
+        # Sidecar configuration for auto-loading dashboards
+        sidecar:
+          dashboards:
+            enabled: true
+            label: grafana_dashboard
+          datasources:
+            enabled: true
+            label: grafana_datasource
+
+        # Alerting configuration - provision contact points and alert rules
+        alerting:
+          contactpoints.yaml:
+            apiVersion: 1
+            contactPoints:
+            - orgId: 1
+              name: argo-workflows
+              receivers:
+              - uid: ceu4t0e3mrzswa
+                type: webhook
+                settings:
+                  httpMethod: POST
+                  payload:
+                    template: |
+                      {
+                          "workflow": "kubectl-failed-pods",
+                          "message": "test",
+                          "source": "grafana",
+                          "timestamp": "null"
+                      }
+                    vars: {}
+                  url: http://webhook-eventsource-svc.argo.svc.cluster.local:12000/webhook
+                disableResolveMessage: true
+
+          rules.yaml:
+            apiVersion: 1
+            groups:
+            - orgId: 1
+              name: default
+              folder: default
+              interval: 1m
+              rules:
+              - uid: testargowf
+                title: TestArgoWF
+                condition: C
+                data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 600
+                    to: 0
+                  datasourceUid: prometheus-main
+                  model:
+                    disableTextWrap: false
+                    editorMode: code
+                    expr: '{cpu="0", service="prometheus-prometheus-node-exporter", instance="172.18.0.10:9100", mode=''irq''}'
+                    fullMetaSearch: false
+                    includeNullMetadata: true
+                    instant: true
+                    intervalMs: 1000
+                    legendFormat: __auto
+                    maxDataPoints: 43200
+                    range: false
+                    refId: A
+                    useBackend: false
+                - refId: C
+                  datasourceUid: __expr__
+                  model:
+                    conditions:
+                    - evaluator:
+                        params:
+                        - 0
+                        type: eq
+                      operator:
+                        type: and
+                      query:
+                        params:
+                        - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                    datasource:
+                      type: __expr__
+                      uid: __expr__
+                    expression: A
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    refId: C
+                    type: threshold
+                noDataState: NoData
+                execErrState: Error
+                for: 1m
+                isPaused: false
+                notification_settings:
+                  receiver: argo-workflows
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grafana
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

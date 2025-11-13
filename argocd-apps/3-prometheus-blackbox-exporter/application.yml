@@ -1,0 +1,107 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-blackbox-exporter
+    targetRevision: 9.1.0
+    helm:
+      valuesObject:
+        # Blackbox exporter configuration
+        config:
+          modules:
+            http_2xx:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: [ "HTTP/1.1", "HTTP/2.0" ]
+                valid_status_codes: [] # Defaults to 2xx
+                method: GET
+                preferred_ip_protocol: "ip4"
+                follow_redirects: true
+                fail_if_ssl: false
+                fail_if_not_ssl: false
+
+            http_post_2xx:
+              prober: http
+              timeout: 5s
+              http:
+                method: POST
+                valid_status_codes: []
+
+            tcp_connect:
+              prober: tcp
+              timeout: 5s
+
+            icmp:
+              prober: icmp
+              timeout: 5s
+
+        # Resource limits for lab environment
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+        # Service monitor to scrape blackbox exporter metrics
+        serviceMonitor:
+          enabled: true
+          defaults:
+            labels:
+              release: prometheus
+              prometheus: kube-prometheus
+            interval: 30s
+            scrapeTimeout: 30s
+
+          # Define targets to probe
+          targets:
+          # Probe Kubernetes API server
+          - name: kubernetes-api
+            url: https://kubernetes.default.svc.cluster.local:443
+            module: http_2xx
+            interval: 30s
+            scrapeTimeout: 10s
+
+          # Probe ArgoCD
+          - name: argocd-server
+            url: http://argo-cd-argocd-server.argocd.svc.cluster.local
+            module: http_2xx
+            interval: 30s
+            scrapeTimeout: 10s
+
+          # Probe Grafana
+          - name: grafana
+            url: http://grafana.grafana.svc.cluster.local
+            module: http_2xx
+            interval: 30s
+            scrapeTimeout: 10s
+
+        # Pod annotations for Prometheus scraping
+        podAnnotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9115"
+
+        # Enable pod security policy (set to false for most clusters)
+        pspEnabled: false
+
+        # Network policy
+        networkPolicy:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

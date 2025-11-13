@@ -1,0 +1,15 @@
+Kubernetes
+https://grafana.com/api/dashboards/18283/revisions/1/download
+
+ArgoCD
+https://grafana.com/api/dashboards/14584/revisions/1/download
+https://argo-cd.readthedocs.io/en/stable/operator-manual/metrics/
+
+NodeExporter
+https://grafana.com/api/dashboards/1860/revisions/42/download
+
+Blackbox Exporter
+https://grafana.com/api/dashboards/13659/revisions/1/download
+
+CoreDNS
+https://grafana.com/api/dashboards/14981/revisions/2/download

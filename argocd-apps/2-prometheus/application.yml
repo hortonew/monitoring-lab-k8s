@@ -1,0 +1,109 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 65.8.1
+    helm:
+      valuesObject:
+        # Prometheus server configuration
+        prometheus:
+          service:
+            type: LoadBalancer
+            port: 80
+          prometheusSpec:
+            retention: 7d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ "ReadWriteOnce" ]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+
+        # Grafana is disabled - deployed separately
+        grafana:
+          enabled: false
+
+        # Alertmanager configuration
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+
+        # Prometheus Operator configuration
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+        # Node exporter
+        nodeExporter:
+          enabled: true
+
+        # Kube state metrics
+        kubeStateMetrics:
+          enabled: true
+
+        # Default rules
+        defaultRules:
+          create: true
+          rules:
+            alertmanager: true
+            etcd: true
+            configReloaders: true
+            general: true
+            k8s: true
+            kubeApiserver: true
+            kubeApiserverAvailability: true
+            kubeApiserverSlos: true
+            kubelet: true
+            kubeProxy: true
+            kubePrometheusGeneral: true
+            kubePrometheusNodeRecording: true
+            kubernetesApps: true
+            kubernetesResources: true
+            kubernetesStorage: true
+            kubernetesSystem: true
+            kubeScheduler: true
+            kubeStateMetrics: true
+            network: true
+            node: true
+            nodeExporterAlerting: true
+            nodeExporterRecording: true
+            prometheus: true
+            prometheusOperator: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
