@@ -1,0 +1,60 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minio
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.min.io/
+    chart: minio
+    targetRevision: 5.4.0
+    helm:
+      values: |
+        rootUser: minio
+        rootPassword: minio123
+        service:
+          type: ClusterIP
+          port: 9000
+        consoleService:
+          type: LoadBalancer
+          port: 80
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        replicas: 2
+        mode: distributed
+        buckets:
+          # Stores compressed log chunks/blocks - main storage for ingested logs
+          - name: loki-chunks
+            policy: none
+            purge: false
+          # Stores recording rules and alert rule configurations for Loki ruler
+          - name: loki-ruler
+            policy: none
+            purge: false
+          # Stores admin API data, compactor metadata, and index files
+          - name: loki-admin
+            policy: none
+            purge: false
+        persistence:
+          enabled: true
+          storageClass: "longhorn"
+          accessMode: ReadWriteOnce
+          size: 10Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: minio
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - Validate=true
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
