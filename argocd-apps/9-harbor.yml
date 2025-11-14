@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.goharbor.io
+    targetRevision: 1.18.0
+    chart: harbor
+    helm:
+      version: v3
+      releaseName: harbor
+      values: |
+        expose:
+          type: loadBalancer
+          loadBalancer:
+            name: harbor
+            IP: "" # Leave empty for MetalLB to assign an IP dynamically
+            ports:
+              httpPort: 80
+              httpsPort: 443
+            annotations:
+              metallb.universe.tf/address-pool: pool1 # Use MetalLB address pool
+              external-dns.alpha.kubernetes.io/hostname: harbor.lab.hortonew.com # DNS annotation for external-dns
+            sourceRanges: []
+          tls:
+            enabled: true
+            certSource: secret
+            secret:
+              secretName: harbor-tls
+              notarySecretName: harbor-tls
+        externalURL: https://harbor.lab.hortonew.com
+
+        # Admin password for Harbor
+        harborAdminPassword: "Harbor12345"
+
+        nginx:
+          tls:
+            commonName: harbor.lab.hortonew.com
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harbor
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - Validate=true
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true

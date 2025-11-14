@@ -21,36 +21,11 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
 # Set up necessary secrets for cert-manager and external-dns
 kubectl create secret generic cloudflare-api-token-secret --from-literal=api-token=<secret here> -n cert-manager
 kubectl create secret generic cloudflare-api-token-secret --from-literal=api-token=<secret here> -n external-dns 
-```
 
-## Add container registry (harbor)
-
-```sh
-# https://github.com/goharbor/harbor-helm/blob/main/values.yaml
-helm repo add harbor https://helm.goharbor.io
-helm upgrade --install harbor harbor/harbor --namespace harbor --create-namespace -f k8s-configs/harbor-values.yml
-
-# Create cert for nginx
-openssl req -newkey rsa:2048 -nodes -keyout harbor-tls.key -x509 -days 365 -out harbor-tls.crt -subj "/CN=harbor.hortonew.com" -addext "subjectAltName=DNS:harbor.hortonew.com,IP:192.168.1.242"
+# Configure cert for harbor
+HARBOR_LB_IP=$(kubectl get svc -n harbor harbor -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+openssl req -newkey rsa:2048 -nodes -keyout harbor-tls.key -x509 -days 365 -out harbor-tls.crt -subj "/CN=harbor.lab.hortonew.com" -addext "subjectAltName=DNS:harbor.lab.hortonew.com,IP:$HARBOR_LB_IP"
 kubectl create secret tls harbor-tls --cert=harbor-tls.crt --key=harbor-tls.key -n harbor
-```
-
-## Override DNS for pods to find harbor.hortonew.com
-
-kubectl edit configmap coredns -n kube-system 
-```sh
- 13         ready
- 14         hosts {
- 15             192.168.1.242 harbor.hortonew.com
- 16             fallthrough
- 17         }
-```
-
-Then restart and test:
-
-```sh
-kubectl rollout restart deployment coredns -n kube-system
-kubectl run busybox --image=busybox --rm -it --restart=Never -- nslookup harbor.hortonew.com
 ```
 
 <!-- ## Gitlab
