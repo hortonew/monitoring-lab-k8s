@@ -19,6 +19,8 @@ spec:
         service:
           type: LoadBalancer
           port: 80
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: grafana.lab.hortonew.com
         # Resource limits for lab environment
         resources:
           limits:
