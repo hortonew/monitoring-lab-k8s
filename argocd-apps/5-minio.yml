@@ -43,6 +43,14 @@ spec:
           - name: loki-admin
             policy: none
             purge: false
+          # Stores PostgreSQL backups from CloudNativePG
+          - name: postgres-backups
+            policy: none
+            purge: false
+        users:
+          - accessKey: postgres-backup
+            secretKey: postgres-backup-secret-key-change-me
+            policy: readwrite
         persistence:
           enabled: true
           storageClass: "longhorn"
