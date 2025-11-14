@@ -57,3 +57,20 @@ spec:
   endpoints:
   - port: metrics
     interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio
+  namespace: minio
+  labels:
+    app: minio
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  endpoints:
+  - port: http
+    path: /minio/v2/metrics/cluster
+    interval: 30s
+    scrapeTimeout: 10s
