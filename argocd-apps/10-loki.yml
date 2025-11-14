@@ -1,0 +1,156 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki
+    targetRevision: 6.44.0
+    helm:
+      valuesObject:
+        # Deployment mode - use single binary for simplicity
+        deploymentMode: SingleBinary
+
+        # Single binary configuration
+        singleBinary:
+          replicas: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          persistence:
+            enabled: true
+            storageClass: longhorn
+            size: 10Gi
+
+        # Loki configuration
+        loki:
+          auth_enabled: false
+
+          commonConfig:
+            replication_factor: 1
+            ring:
+              kvstore:
+                store: inmemory
+
+          # Storage configuration for Minio
+          storage:
+            type: s3
+            bucketNames:
+              chunks: loki-chunks
+              ruler: loki-ruler
+              admin: loki-admin
+            s3:
+              endpoint: minio.minio.svc.cluster.local:9000
+              accessKeyId: minio
+              secretAccessKey: minio123
+              s3ForcePathStyle: true
+              insecure: true
+
+          # Schema configuration
+          schemaConfig:
+            configs:
+            - from: "2024-01-01"
+              store: tsdb
+              object_store: s3
+              schema: v13
+              index:
+                prefix: index_
+                period: 24h
+
+          # Ingester configuration
+          ingester:
+            chunk_idle_period: 1h
+            chunk_target_size: 1048576 # 1MB
+            max_chunk_age: 2h
+            flush_check_period: 5m
+
+          # Limits configuration
+          limits_config:
+            max_query_lookback: 720h # 30 days
+            retention_period: 720h # 30 days
+            reject_old_samples: true
+            reject_old_samples_max_age: 168h
+            max_cache_freshness_per_query: 10m
+            split_queries_by_interval: 15m
+            max_query_parallelism: 32
+
+          # Compactor configuration
+          compactor:
+            working_directory: /var/loki/compactor
+            retention_enabled: true
+            retention_delete_delay: 2h
+            retention_delete_worker_count: 150
+            delete_request_store: s3
+            compaction_interval: 10m
+
+          # Query scheduler configuration
+          query_scheduler:
+            max_outstanding_requests_per_tenant: 2048
+
+          # Ruler configuration
+          ruler:
+            enable_api: true
+            storage:
+              type: s3
+              s3:
+                bucketnames: loki-ruler
+
+        # Monitoring
+        monitoring:
+          selfMonitoring:
+            enabled: false
+            grafanaAgent:
+              installOperator: false
+
+          serviceMonitor:
+            enabled: true
+            labels:
+              release: prometheus
+
+        # Gateway (nginx) - disabled for single binary mode
+        gateway:
+          enabled: false
+
+        # Backend, Read, Write - disabled for single binary mode
+        # Production: Would use separate components for better scalability and resource isolation
+        backend:
+          replicas: 0
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+
+        # Disable caching for lab environment (saves memory)
+        # Production: Chunks cache significantly improves query performance by caching compressed log chunks
+        chunksCache:
+          enabled: false
+        # Production: Results cache reduces query latency by caching query results for repeated queries
+        resultsCache:
+          enabled: false
+
+        # Disable canary (not needed for lab)
+        # Production: Canary pods continuously test the Loki write/read path to detect issues proactively
+        lokiCanary:
+          enabled: false
+
+        # Test configuration
+        test:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: loki
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
