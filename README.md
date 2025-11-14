@@ -15,6 +15,7 @@ kubectl apply -f argocd-apps/
 
 # Make argocd accessible via MetalLB once it's set up
 kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+kubectl annotate svc argocd-server -n argocd "external-dns.alpha.kubernetes.io/hostname=argocd.lab.hortonew.com"
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 
 # Set up necessary secrets for cert-manager and external-dns
