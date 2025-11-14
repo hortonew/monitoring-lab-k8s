@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: webhook-workflow
+  namespace: argo
+spec:
+  entrypoint: webhook-handler
+  arguments:
+    parameters:
+    - name: message
+      value: "Default webhook message"
+    - name: source
+      value: "unknown"
+    - name: timestamp
+      value: "{{workflow.creationTimestamp}}"
+  templates:
+  - name: webhook-handler
+    inputs:
+      parameters:
+      - name: message
+      - name: source
+      - name: timestamp
+    container:
+      image: alpine:3.18
+      command: [ sh, -c ]
+      args:
+      - |
+        echo "=== Webhook Triggered Workflow ==="
+        echo "Message: {{inputs.parameters.message}}"
+        echo "Source: {{inputs.parameters.source}}"
+        echo "Timestamp: {{inputs.parameters.timestamp}}"
+        echo "Workflow Name: {{workflow.name}}"
+        echo "================================="
+        echo "Simulating some work..."
+        sleep 5
+        echo "Work completed successfully!"
+      resources:
+        limits:
+          memory: 256Mi
+          cpu: 200m
+        requests:
+          memory: 128Mi
+          cpu: 100m

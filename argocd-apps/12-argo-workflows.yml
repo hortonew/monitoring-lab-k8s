@@ -1,0 +1,96 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-workflows
+    targetRevision: 0.45.28 # https://artifacthub.io/packages/helm/argo/argo-workflows
+    helm:
+      valuesObject:
+        # Argo Workflows server configuration
+        server:
+          enabled: true
+
+          # Service configuration for external access via LoadBalancer
+          serviceType: LoadBalancer
+          servicePort: 80
+          serviceAnnotations:
+            external-dns.alpha.kubernetes.io/hostname: argo-workflows.lab.hortonew.com
+
+          # Security configuration
+          extraArgs:
+          - --auth-mode=server
+          - --secure=false
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+        # Workflow controller configuration
+        controller:
+          workflowNamespaces:
+          - argo
+          - default
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+          # Enable metrics for Prometheus scraping
+          metricsConfig:
+            enabled: true
+            path: /metrics
+            port: 9090
+
+          # Enable ServiceMonitor for Prometheus Operator
+          serviceMonitor:
+            enabled: true
+            additionalLabels:
+              release: prometheus
+
+          # Workflow defaults
+          workflowDefaults:
+            spec:
+              ttlStrategy:
+                secondsAfterCompletion: 86400 # 24 hours
+                secondsAfterSuccess: 86400 # 24 hours
+                secondsAfterFailure: 172800 # 48 hours
+
+        # Executor configuration
+        executor:
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 200m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+
+        # Workflow defaults
+        workflowDefaults:
+          spec:
+            ttlStrategy:
+              secondsAfterCompletion: 86400
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

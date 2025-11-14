@@ -1,0 +1,67 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: webhook-kubectl-sensor
+  namespace: argo
+spec:
+  template:
+    metadata:
+      labels:
+        app: webhook-kubectl-sensor
+    spec:
+      serviceAccountName: argo-events-sa
+      containers:
+      - name: main
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 200m
+          requests:
+            memory: 128Mi
+            cpu: 100m
+  dependencies:
+  - name: webhook-kubectl-dep
+    eventSourceName: webhook-eventsource
+    eventName: grafana-webhook
+    filters:
+      data:
+      - path: body.workflow
+        type: string
+        value: [ "kubectl-failed-pods" ]
+  triggers:
+  - template:
+      name: kubectl-failed-pods-trigger
+      k8s:
+        operation: create
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: kubectl-failed-pods-
+              namespace: argo
+            spec:
+              workflowTemplateRef:
+                name: kubectl-failed-pods-workflow
+              arguments:
+                parameters:
+                - name: message
+                  value: "Check for failed pods"
+                - name: source
+                  value: "webhook"
+                - name: timestamp
+                  value: "unknown"
+              serviceAccountName: argo-events-sa
+        parameters:
+        - src:
+            dependencyName: webhook-kubectl-dep
+            dataKey: body.message
+          dest: spec.arguments.parameters.0.value
+        - src:
+            dependencyName: webhook-kubectl-dep
+            dataKey: body.source
+          dest: spec.arguments.parameters.1.value
+        - src:
+            dependencyName: webhook-kubectl-dep
+            dataKey: body.timestamp
+          dest: spec.arguments.parameters.2.value

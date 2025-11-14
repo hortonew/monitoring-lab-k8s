@@ -1,0 +1,95 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: kubectl-failed-pods-workflow
+  namespace: argo
+spec:
+  entrypoint: find-failed-pods
+  arguments:
+    parameters:
+    - name: message
+      value: "Finding failed pods"
+    - name: source
+      value: "kubectl-trigger"
+    - name: timestamp
+      value: "{{workflow.creationTimestamp}}"
+  templates:
+  - name: find-failed-pods
+    inputs:
+      parameters:
+      - name: message
+      - name: source
+      - name: timestamp
+    container:
+      image: bitnami/kubectl:latest
+      command: [ sh, -c ]
+      args:
+      - |
+        echo "=== Kubectl Failed Pods Workflow ==="
+        echo "Message: {{inputs.parameters.message}}"
+        echo "Source: {{inputs.parameters.source}}"
+        echo "Timestamp: {{inputs.parameters.timestamp}}"
+        echo "Workflow Name: {{workflow.name}}"
+        echo "================================="
+        echo ""
+        echo "🔍 Searching for failed pods across all namespaces..."
+        echo ""
+
+        # Get all failed pods (status.phase=Failed)
+        echo "🔍 Checking for pods with Failed status..."
+        FAILED_PODS=$(kubectl get pods --all-namespaces --field-selector=status.phase=Failed -o wide)
+
+        if [ -z "$FAILED_PODS" ] || echo "$FAILED_PODS" | grep -q "No resources found"; then
+          echo "✅ No pods with Failed status found"
+        else
+          echo "❌ Pods with Failed status found:"
+          echo "$FAILED_PODS"
+          echo ""
+          echo "📊 Failed pods details:"
+          kubectl get pods --all-namespaces --field-selector=status.phase=Failed -o json | \
+            jq -r '.items[] | "Namespace: \(.metadata.namespace), Pod: \(.metadata.name), Reason: \(.status.containerStatuses[0].state.terminated.reason // "Unknown"), Exit Code: \(.status.containerStatuses[0].state.terminated.exitCode // "N/A")"'
+        fi
+
+        echo ""
+        echo "🔍 Checking for pods with container issues (ImagePullBackOff, CrashLoopBackOff, etc.)..."
+
+        # Get all pods and filter for container issues with better error handling
+        PROBLEM_PODS=$(kubectl get pods --all-namespaces -o json | \
+          jq -r '.items[]? | select(type == "object" and has("status") and has("metadata")) | select(
+            (.status.containerStatuses[]?.state.waiting?.reason // "") | test("ImagePullBackOff|CrashLoopBackOff|ErrImagePull|InvalidImageName") or
+            (.status.containerStatuses[]?.state.terminated?.reason // "") | test("Error")
+          ) | "\(.metadata.namespace) \(.metadata.name) \(.status.phase) \(.status.containerStatuses[0].state.waiting.reason // .status.containerStatuses[0].state.terminated.reason // "Unknown")"' 2>/dev/null)
+
+        if [ -z "$PROBLEM_PODS" ]; then
+          echo "✅ No pods with container issues found"
+          
+          # Let's also show what pods exist in argo namespace for debugging
+          echo ""
+          echo "🔍 Debug: Showing all pods in argo namespace..."
+          kubectl get pods -n argo -o wide || echo "No pods in argo namespace"
+        else
+          echo "❌ Pods with container issues found:"
+          echo "NAMESPACE       POD_NAME                      STATUS      ISSUE"
+          echo "--------------------------------------------------------------"
+          echo "$PROBLEM_PODS" | while IFS=' ' read -r namespace pod status reason; do
+            printf "%-15s %-30s %-10s %s\n" "$namespace" "$pod" "$status" "$reason"
+          done
+          
+          echo ""
+          echo "📊 Detailed container status for problematic pods:"
+          kubectl get pods --all-namespaces -o json | \
+            jq -r '.items[]? | select(type == "object" and has("status") and has("metadata")) | select(
+              (.status.containerStatuses[]?.state.waiting?.reason // "") | test("ImagePullBackOff|CrashLoopBackOff|ErrImagePull|InvalidImageName") or
+              (.status.containerStatuses[]?.state.terminated?.reason // "") | test("Error")
+            ) | "🔴 \(.metadata.namespace)/\(.metadata.name): \(.status.containerStatuses[0].state.waiting.reason // .status.containerStatuses[0].state.terminated.reason // "Unknown") - \(.status.containerStatuses[0].state.waiting.message // .status.containerStatuses[0].state.terminated.message // "No message")"' 2>/dev/null
+        fi
+
+        echo ""
+        echo "✅ Failed pods check completed!"
+      resources:
+        limits:
+          memory: 256Mi
+          cpu: 200m
+        requests:
+          memory: 128Mi
+          cpu: 100m

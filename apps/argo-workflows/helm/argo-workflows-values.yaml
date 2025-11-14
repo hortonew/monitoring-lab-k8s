@@ -1,0 +1,111 @@
+# Argo Workflows Helm values for production deployment
+server:
+  # Enable the Argo Workflows UI
+  enabled: true
+
+  # Service configuration - using ClusterIP, expose via ingress if needed
+  service:
+    type: ClusterIP
+    port: 2746
+
+  # Ingress configuration - uncomment and configure for external access
+  # ingress:
+  #   enabled: true
+  #   ingressClassName: nginx
+  #   hosts:
+  #     - argo-workflows.example.com
+  #   tls:
+  #     - secretName: argo-workflows-tls
+  #       hosts:
+  #         - argo-workflows.example.com
+
+  # Security - adjust auth mode as needed
+  # Options: server, client, sso, hybrid
+  extraArgs:
+  - --auth-mode=server
+  - --secure=false
+
+  # Resource limits
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Workflow controller configuration
+controller:
+  # Namespaces where workflows can be executed
+  workflowNamespaces:
+  - argo
+  - default
+
+  # Resource limits for controller
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Enable metrics for Prometheus scraping
+  metricsConfig:
+    enabled: true
+    path: /metrics
+    port: 9090
+
+  # Workflow defaults
+  workflowDefaults:
+    spec:
+      # TTL strategy - clean up completed workflows
+      ttlStrategy:
+        secondsAfterCompletion: 86400 # 24 hours
+        secondsAfterSuccess: 86400 # 24 hours
+        secondsAfterFailure: 172800 # 48 hours
+  # Persistence configuration for workflow archive
+  # Uncomment to enable PostgreSQL or MySQL persistence
+  # persistence:
+  #   archive: true
+  #   postgresql:
+  #     host: postgres.default.svc.cluster.local
+  #     port: 5432
+  #     database: argo
+  #     tableName: argo_workflows
+  #     userNameSecret:
+  #       name: argo-postgres-config
+  #       key: username
+  #     passwordSecret:
+  #       name: argo-postgres-config
+  #       key: password
+
+  # Executor configuration
+executor:
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 200m
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+# Artifact repository configuration
+# Uncomment to configure S3/MinIO for artifact storage
+# artifactRepository:
+#   s3:
+#     bucket: argo-artifacts
+#     endpoint: minio.default.svc.cluster.local:9000
+#     insecure: true
+#     accessKeySecret:
+#       name: argo-artifacts-s3
+#       key: accessKey
+#     secretKeySecret:
+#       name: argo-artifacts-s3
+#       key: secretKey
+
+# Basic workflow defaults
+workflowDefaults:
+  spec:
+    ttlStrategy:
+      secondsAfterCompletion: 86400 # Clean up workflows after 24 hours

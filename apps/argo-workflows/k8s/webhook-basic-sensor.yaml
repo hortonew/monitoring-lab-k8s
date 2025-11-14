@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: webhook-basic-sensor
+  namespace: argo
+spec:
+  template:
+    metadata:
+      labels:
+        app: webhook-basic-sensor
+    spec:
+      serviceAccountName: argo-events-sa
+      containers:
+      - name: main
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 200m
+          requests:
+            memory: 128Mi
+            cpu: 100m
+  dependencies:
+  - name: webhook-basic-dep
+    eventSourceName: webhook-eventsource
+    eventName: grafana-webhook
+    filters:
+      dataLogicalOperator: "or"
+      data:
+      - path: body.workflow
+        type: string
+        value: [ "basic" ]
+      - path: body.workflow
+        type: string
+        value: [ "" ]
+      - path: body
+        type: string
+        comparator: "!="
+        value: [ ".*workflow.*" ]
+  triggers:
+  - template:
+      name: webhook-workflow-trigger
+      k8s:
+        operation: create
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: webhook-workflow-
+              namespace: argo
+            spec:
+              workflowTemplateRef:
+                name: webhook-workflow
+              arguments:
+                parameters:
+                - name: message
+                  value: "Triggered from Grafana webhook"
+                - name: source
+                  value: "grafana"
+                - name: timestamp
+                  value: "unknown"
+              serviceAccountName: argo-events-sa
+        parameters:
+        - src:
+            dependencyName: webhook-basic-dep
+            dataKey: body.message
+          dest: spec.arguments.parameters.0.value
+        - src:
+            dependencyName: webhook-basic-dep
+            dataKey: body.source
+          dest: spec.arguments.parameters.1.value
+        - src:
+            dependencyName: webhook-basic-dep
+            dataKey: body.timestamp
+          dest: spec.arguments.parameters.2.value

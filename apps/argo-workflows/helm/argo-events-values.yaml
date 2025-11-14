@@ -1,0 +1,22 @@
+# Argo Events Helm values for production deployment
+
+# Controller configuration
+controller:
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# Metrics configuration for Prometheus
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: prometheus
+
+# Event bus configuration
+# The EventBus will be created separately as a k8s manifest

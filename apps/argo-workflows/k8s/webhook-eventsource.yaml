@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: webhook-eventsource
+  namespace: argo
+spec:
+  webhook:
+    grafana-webhook:
+      port: "12000"
+      endpoint: /webhook
+      method: POST
+  template:
+    metadata:
+      labels:
+        app: webhook-eventsource
+    spec:
+      containers:
+      - name: main
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 200m
+          requests:
+            memory: 128Mi
+            cpu: 100m

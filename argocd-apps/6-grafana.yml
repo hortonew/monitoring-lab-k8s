@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://grafana.github.io/helm-charts
     chart: grafana
-    targetRevision: 8.8.2
+    targetRevision: 10.1.4
     helm:
       valuesObject:
         # Admin credentials
@@ -45,6 +45,8 @@ spec:
               url: http://prometheus-operated.prometheus.svc.cluster.local:9090
               access: proxy
               isDefault: true
+              jsonData:
+                manageAlerts: false # disable alerts from prometheus datasource
             - name: Loki
               type: loki
               uid: loki-main
@@ -59,12 +61,6 @@ spec:
             #   access: proxy
             #   jsonData:
             #     minStep: '15s'
-            # - name: Argo-Workflows-Metrics
-            #   type: prometheus
-            #   uid: argo-workflows-prometheus
-            #   url: http://argo-workflows-workflow-controller-metrics.argo.svc.cluster.local:9090
-            #   access: proxy
-
             # Dashboard configuration
         dashboardProviders:
           dashboardproviders.yaml:
@@ -183,7 +179,7 @@ spec:
                     - evaluator:
                         params:
                         - 0
-                        type: eq
+                        type: gt
                       operator:
                         type: and
                       query:
@@ -201,8 +197,8 @@ spec:
                     maxDataPoints: 43200
                     refId: C
                     type: threshold
-                noDataState: NoData
-                execErrState: Error
+                noDataState: Alerting
+                execErrState: Alerting
                 for: 1m
                 isPaused: false
                 notification_settings:
