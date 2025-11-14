@@ -3,6 +3,7 @@
 Create a kubernetes cluster:
 
 ```sh
+ansible-playbook fix-machine-ids.yml
 ansible-playbook configure-k8s-cluster.yml
 ```
 
@@ -13,6 +14,11 @@ Ansible will pull down the config, just make sure you set the following manually
 ```sh
 export KUBECONFIG=~/.kube/config:/tmp/proxmox-kubeconfig
 ```
+
+## Configure strictArp on kubeproxy ipvs settings
+
+[https://metallb.universe.tf/installation/#preparation](https://metallb.universe.tf/installation/#preparation)
+
 
 Upgrade kubernetes:
 

@@ -1,0 +1,98 @@
+---
+# An ansible playbook that fixes duplicate machine-ids on cloned VMs
+# This is critical for MetalLB and other services that rely on unique node identifiers
+- name: Check for duplicate machine-ids
+  hosts: all
+  become: true
+  tasks:
+  - name: Read machine-id from all nodes
+    ansible.builtin.command: cat /etc/machine-id
+    register: machine_id
+    changed_when: false
+
+  - name: Collect all machine-ids
+    ansible.builtin.set_fact:
+      all_machine_ids: "{{ ansible_play_hosts | map('extract', hostvars, 'machine_id') | map(attribute='stdout') | list }}"
+    run_once: true
+
+  - name: Check for duplicates
+    ansible.builtin.set_fact:
+      has_duplicates: "{{ all_machine_ids | length != (all_machine_ids | unique | length) }}"
+
+  - name: Set global duplicate flag
+    ansible.builtin.set_fact:
+      has_duplicates: "{{ hostvars[ansible_play_hosts[0]]['has_duplicates'] }}"
+
+  - name: Display duplicate check result
+    ansible.builtin.debug:
+      msg: "{{ 'DUPLICATES FOUND - will proceed with fix' if has_duplicates else 'All machine-ids are unique - no action needed' }}"
+    run_once: true
+
+  - name: Display all machine-ids
+    ansible.builtin.debug:
+      msg: "{{ inventory_hostname }}: {{ machine_id.stdout }}"
+
+- name: Fix duplicate machine-ids on cloned nodes
+  hosts: all
+  become: true
+  tasks:
+  - name: Skip if no duplicates
+    ansible.builtin.meta: end_host
+    when: not hostvars[inventory_hostname]['has_duplicates']
+  - name: Check current machine-id
+    ansible.builtin.command: cat /etc/machine-id
+    register: old_machine_id
+    changed_when: false
+
+  - name: Display current machine-id
+    ansible.builtin.debug:
+      msg: "Current machine-id on {{ inventory_hostname }}: {{ old_machine_id.stdout }}"
+
+  - name: Remove old machine-id
+    ansible.builtin.file:
+      path: "{{ item }}"
+      state: absent
+    loop:
+    - /etc/machine-id
+    - /var/lib/dbus/machine-id
+
+  - name: Regenerate machine-id
+    ansible.builtin.command: systemd-machine-id-setup
+    register: machine_id_setup
+
+  - name: Read new machine-id
+    ansible.builtin.command: cat /etc/machine-id
+    register: new_machine_id
+    changed_when: false
+
+  - name: Display new machine-id
+    ansible.builtin.debug:
+      msg: "New machine-id on {{ inventory_hostname }}: {{ new_machine_id.stdout }}"
+
+  - name: Check if machine-id changed
+    ansible.builtin.set_fact:
+      machine_id_changed: "{{ old_machine_id.stdout != new_machine_id.stdout }}"
+
+  - name: Display if reboot is needed
+    ansible.builtin.debug:
+      msg: "{{ inventory_hostname }}: Machine-id {{ 'CHANGED' if machine_id_changed else 'unchanged' }} - reboot {{ 'required' if machine_id_changed else 'not needed' }}"
+
+  - name: Reboot nodes to apply changes
+    ansible.builtin.reboot:
+      msg: "Rebooting to apply new machine-id"
+      reboot_timeout: 300
+      pre_reboot_delay: 5
+      post_reboot_delay: 30
+      test_command: uptime
+    when: machine_id_changed
+
+  - name: Verify unique machine-id after reboot
+    ansible.builtin.command: cat /etc/machine-id
+    register: final_machine_id
+    changed_when: false
+    when: machine_id_changed
+
+  - name: Display final machine-id
+    ansible.builtin.debug:
+      msg: "Final machine-id on {{ inventory_hostname }}: {{ final_machine_id.stdout }}"
+    when: machine_id_changed
