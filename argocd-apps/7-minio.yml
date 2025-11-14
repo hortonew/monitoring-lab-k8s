@@ -19,6 +19,8 @@ spec:
         consoleService:
           type: LoadBalancer
           port: 80
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: minio.lab.hortonew.com
         resources:
           requests:
             memory: 256Mi
