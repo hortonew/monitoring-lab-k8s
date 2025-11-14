@@ -1,0 +1,67 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: n8n
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: oci://8gears.container-registry.com/library/n8n
+    chart: n8n
+    targetRevision: 1.1.0
+    helm:
+      valuesObject:
+        # Ingress disabled - using LoadBalancer directly
+        ingress:
+          enabled: false
+
+        # Service configuration
+        main:
+          config:
+            n8n:
+              host: n8n.lab.hortonew.com
+              port: 5678
+              protocol: http
+              secure_cookie: false
+            generic:
+              timezone: America/Denver
+            webhook:
+              url: http://n8n.lab.hortonew.com
+            database:
+              type: sqlite
+            executions:
+              pruneData: true
+              pruneDataMaxAge: 168
+
+          service:
+            type: LoadBalancer
+            port: 80
+            annotations:
+              external-dns.alpha.kubernetes.io/hostname: n8n.lab.hortonew.com
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+          persistence:
+            enabled: true
+            type: dynamic
+            storageClass: longhorn
+            accessModes:
+            - ReadWriteOnce
+            size: 5Gi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: n8n
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
