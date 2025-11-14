@@ -1,51 +1,57 @@
 # Monitoring Lab: K8s
 
-Successor to the [Docker Compose based monitoring lab](https://github.com/hortonew/monitoring-lab), this time in Kubernetes.
+Successor to the [Docker Compose based monitoring lab](https://github.com/hortonew/monitoring-lab), this time in Kubernetes, hosted on my Proxmox server.
 
 ![Monitoring Lab on k8s](images/k8s-lab.png)
 
-## Assumptions
-
-The hosts in the inventory are reachable and you can authenticate with your SSH key to the ubuntu user on each machine.
-
-1. Create 5 VMs with ubuntu user
-2. Add SSH public key to ~/.ssh/authorized_keys of ubuntu user
-3. Make sure all hosts are reachable via hostname from ansible machine.
-
-## 🤝 Dependencies
-
-- ansible
-- 5 servers (VMs): k8s1, k8s2, k8s3, k8skw1, k8skw2
-
-## ⏩ Quickstart
-
-Run the ansible playbook:
+## ArgoCD
 
 ```sh
-ansible-playbook configure-k8s-cluster.yml
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Bootstrap the cluster (or go in order 0-n)
+kubectl apply -f argocd-apps/
+
+# Make argocd accessible via MetalLB once it's set up
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+# Set up necessary secrets for cert-manager and external-dns
+kubectl create secret generic cloudflare-api-token-secret --from-literal=api-token=<secret here> -n cert-manager
+kubectl create secret generic cloudflare-api-token-secret --from-literal=api-token=<secret here> -n external-dns 
 ```
 
-## Optional
-
-If you need to target specific tags or hosts, here are some examples:
+## Add container registry (harbor)
 
 ```sh
-# Install dependencies on all hosts
-ansible-playbook configure-k8s-cluster.yml -t setup
+# https://github.com/goharbor/harbor-helm/blob/main/values.yaml
+helm repo add harbor https://helm.goharbor.io
+helm upgrade --install harbor harbor/harbor --namespace harbor --create-namespace -f k8s-configs/harbor-values.yml
 
-# Other examples
-ansible-playbook configure-k8s-cluster.yml -t hostname --limit control_nodes
-ansible-playbook configure-k8s-cluster.yml -t k8s --limit primary_control_node,secondary_control_nodes
+# Create cert for nginx
+openssl req -newkey rsa:2048 -nodes -keyout harbor-tls.key -x509 -days 365 -out harbor-tls.crt -subj "/CN=harbor.hortonew.com" -addext "subjectAltName=DNS:harbor.hortonew.com,IP:192.168.1.242"
+kubectl create secret tls harbor-tls --cert=harbor-tls.crt --key=harbor-tls.key -n harbor
 ```
 
-Update ubuntu
+## Override DNS for pods to find harbor.hortonew.com
+
+kubectl edit configmap coredns -n kube-system 
+```sh
+ 13         ready
+ 14         hosts {
+ 15             192.168.1.242 harbor.hortonew.com
+ 16             fallthrough
+ 17         }
+```
+
+Then restart and test:
 
 ```sh
-ansible-playbook update-ubuntu.yml
+kubectl rollout restart deployment coredns -n kube-system
+kubectl run busybox --image=busybox --rm -it --restart=Never -- nslookup harbor.hortonew.com
 ```
 
-Get k8s version
+<!-- ## Gitlab
 
-```sh
-ansible-playbook get-k8s-versions.yml
-```
+helm upgrade --install gitlab gitlab/gitlab --namespace gitlab --create-namespace -f k8s-configs/git-and-container-registry/gitlab-values.yml --timeout 600s -->
