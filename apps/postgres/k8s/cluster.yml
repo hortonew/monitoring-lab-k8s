@@ -18,10 +18,8 @@ spec:
       shared_preload_libraries: ""
 
   monitoring:
-    enabled: true
-    podMonitorSelector:
-      matchLabels:
-        app: postgres
+    enablePodMonitor: true
+    disableDefaultQueries: false
 
   backup:
     barmanObjectStore:
@@ -41,11 +39,11 @@ spec:
 
   resources:
     requests:
-      memory: "512Mi"
-      cpu: "500m"
+      memory: 512Mi
+      cpu: 500m
     limits:
-      memory: "1Gi"
-      cpu: "1000m"
+      memory: 1Gi
+      cpu: "1"
 
   affinity:
     podAntiAffinityType: preferred

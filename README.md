@@ -28,6 +28,10 @@ openssl req -newkey rsa:2048 -nodes -keyout harbor-tls.key -x509 -days 365 -out 
 kubectl create secret tls harbor-tls --cert=harbor-tls.crt --key=harbor-tls.key -n harbor
 ```
 
+## Vault
+
+Follow instructions in [apps/vault/README.md](apps/vault/README.md).  When first initializing vault, you'll need to set up the cluster and edit a kubernetes secret for the unlock keys.  After that, a cronjob will automatically unlock vault if it goes down.  You can also trigger this job manually for quicker unlock during maintenance.
+
 <!-- ## Gitlab
 
 helm upgrade --install gitlab gitlab/gitlab --namespace gitlab --create-namespace -f k8s-configs/git-and-container-registry/gitlab-values.yml --timeout 600s -->
