@@ -160,6 +160,13 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
+  ignoreDifferences:
+  - group: admissionregistration.k8s.io
+    kind: MutatingWebhookConfiguration
+    name: vault-agent-injector-cfg
+    jsonPointers:
+    - /webhooks/0/clientConfig/caBundle
 ---
 # Vault Kubernetes Resources (ServiceMonitors, Auto-unsealer)
 apiVersion: argoproj.io/v1alpha1
