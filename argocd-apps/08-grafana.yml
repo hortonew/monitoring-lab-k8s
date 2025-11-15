@@ -97,6 +97,14 @@ spec:
               gnetId: 14981
               revision: 2
               datasource: Prometheus
+            vault:
+              gnetId: 12904
+              revision: 2
+              datasource: Prometheus
+            cnpg:
+              gnetId: 20417
+              revision: 4
+              datasource: Prometheus
 
         # Enable anonymous access for lab environment
         grafana.ini:
