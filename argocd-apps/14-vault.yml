@@ -1,0 +1,194 @@
+---
+# Main Vault with Raft storage and Shamir seal with auto-unseal via CronJob
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: 0.28.1
+    helm:
+      releaseName: vault
+      valuesObject:
+        global:
+          enabled: true
+          namespace: "vault"
+
+        injector:
+          enabled: true
+          replicas: 1
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+
+        server:
+          enabled: true
+
+          # Disable anti-affinity to allow multiple pods on same node
+          affinity: ""
+
+          # Use raft storage backend (integrated storage)
+          ha:
+            enabled: true
+            replicas: 3
+            raft:
+              enabled: true
+              setNodeId: true
+
+              config: |
+                ui = true
+
+                listener "tcp" {
+                  tls_disable = 1
+                  address = "[::]:8200"
+                  cluster_address = "[::]:8201"
+                  telemetry {
+                    unauthenticated_metrics_access = "true"
+                  }
+                }
+
+                storage "raft" {
+                  path = "/vault/data"
+                  
+                  retry_join {
+                    leader_api_addr = "http://vault-0.vault-internal:8200"
+                  }
+                  retry_join {
+                    leader_api_addr = "http://vault-1.vault-internal:8200"
+                  }
+                  retry_join {
+                    leader_api_addr = "http://vault-2.vault-internal:8200"
+                  }
+                }
+
+                # Using Shamir seal (traditional unseal keys)
+                # Manual unseal required after pod restart
+
+                service_registration "kubernetes" {}
+
+                telemetry {
+                  prometheus_retention_time = "30s"
+                  disable_hostname = true
+                }
+
+          # Environment variable from secret for transit token
+          # Vault will automatically use VAULT_TOKEN for seal authentication
+          extraSecretEnvironmentVars:
+          - envName: VAULT_TOKEN
+            secretName: vault-transit-token
+            secretKey: token
+          # Resources for Vault server
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 250m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+
+          # Data storage for Raft
+          dataStorage:
+            enabled: true
+            size: 10Gi
+            storageClass: null
+            accessMode: ReadWriteOnce
+
+          # Audit storage
+          auditStorage:
+            enabled: true
+            size: 5Gi
+            storageClass: null
+            accessMode: ReadWriteOnce
+
+          # Service configuration
+          service:
+            enabled: true
+            type: ClusterIP
+            port: 8200
+            targetPort: 8200
+
+          # ServiceAccount
+          serviceAccount:
+            create: true
+            name: "vault"
+            annotations: {}
+
+          # Standalone mode disabled since we're using HA
+          standalone:
+            enabled: false
+
+        ui:
+          enabled: true
+          serviceType: "LoadBalancer"
+          serviceNodePort: null
+          externalPort: 8200
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: vault.lab.hortonew.com
+
+        # Server monitoring
+        serverTelemetry:
+          serviceMonitor:
+            enabled: true
+            selectors:
+              release: prometheus
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - Validate=true
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Vault Kubernetes Resources (ServiceMonitors, Auto-unsealer)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-k8s-resources
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/hortonew/monitoring-lab-k8s.git
+    path: apps/vault/k8s
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+    - Validate=true
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
