@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: blackbox-exporter
+  name: prometheus-blackbox-exporter
   namespace: argocd
 spec:
   project: default
@@ -25,6 +25,34 @@ spec:
                 follow_redirects: true
                 fail_if_ssl: false
                 fail_if_not_ssl: false
+
+            http_2xx_insecure:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: [ "HTTP/1.1", "HTTP/2.0" ]
+                valid_status_codes: [] # Defaults to 2xx
+                method: GET
+                preferred_ip_protocol: "ip4"
+                follow_redirects: true
+                fail_if_ssl: false
+                fail_if_not_ssl: false
+                tls_config:
+                  insecure_skip_verify: true
+
+            http_k8s_api:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: [ "HTTP/1.1", "HTTP/2.0" ]
+                valid_status_codes: [ 200, 401, 403 ] # Accept auth errors as valid (API is responding)
+                method: GET
+                preferred_ip_protocol: "ip4"
+                follow_redirects: false
+                fail_if_ssl: false
+                fail_if_not_ssl: false
+                tls_config:
+                  insecure_skip_verify: true
 
             http_post_2xx:
               prober: http
@@ -62,17 +90,17 @@ spec:
 
           # Define targets to probe
           targets:
-          # Probe Kubernetes API server
+          # Probe Kubernetes API server (accepts 403 as valid - API is responding)
           - name: kubernetes-api
             url: https://kubernetes.default.svc.cluster.local:443
-            module: http_2xx
-            interval: 30s
+            module: http_k8s_api
+            interval: 10s
             scrapeTimeout: 10s
 
-          # Probe ArgoCD
+          # Probe ArgoCD (uses self-signed cert)
           - name: argocd-server
-            url: http://argo-cd-argocd-server.argocd.svc.cluster.local
-            module: http_2xx
+            url: https://argocd-server.argocd.svc.cluster.local
+            module: http_2xx_insecure
             interval: 30s
             scrapeTimeout: 10s
 
