@@ -29,11 +29,7 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secret
 
 ### 2. Apply Kubernetes Resources for Vault Authentication
 
-Apply the ServiceAccount and RBAC resources needed for Vault authentication:
-
-```bash
-kubectl apply -f apps/vault/k8s/vault-kubernetes-auth-setup.yaml
-```
+The ServiceAccount and RBAC resources needed for Vault authentication will also get applied through ArgoCD.
 
 This creates:
 - ServiceAccount `external-secrets-vault` in the `external-secrets` namespace
@@ -83,10 +79,10 @@ vault write auth/kubernetes/role/external-secrets \
 vault secrets enable -path=secret kv-v2
 
 # Create a demo secret for testing
-# vault kv put secret/demo/credentials \
-#     username=admin \
-#     password=changeme123 \
-#     api-key=demo-api-key-12345
+vault kv put secret/demo/credentials \
+    username=admin \
+    password=changeme123 \
+    api-key=demo-api-key-12345
 
 # Exit the pod
 exit
