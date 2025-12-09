@@ -4,9 +4,7 @@ metadata:
   name: loki
   namespace: argocd
   finalizers:
-  - resources-finalizer.argocd.argoproj.io
-  annotations:
-    argocd.argoproj.io/deletion-propagation-policy: "background"
+  - resources-finalizer.argocd.argoproj.io/background
 spec:
   project: default
   source:
