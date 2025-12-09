@@ -5,6 +5,10 @@ kind: Application
 metadata:
   name: vault
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/deletion-propagation-policy: "background"
 spec:
   project: default
   source:
@@ -174,6 +178,10 @@ kind: Application
 metadata:
   name: vault-k8s-resources
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/deletion-propagation-policy: "background"
 spec:
   project: default
   source:

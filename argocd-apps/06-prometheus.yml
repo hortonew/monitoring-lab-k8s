@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: prometheus
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/deletion-propagation-policy: "background"
 spec:
   project: default
   source:
@@ -121,6 +125,8 @@ metadata:
   namespace: argocd
   finalizers:
   - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/deletion-propagation-policy: "background"
 spec:
   project: default
   source:
